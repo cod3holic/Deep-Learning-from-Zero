@@ -72,9 +72,9 @@ class Variable:
     def cleargrad(self):
         self.grad = None
 
-    def backward(self, retain_grad=False):
+    def backward(self, retain_grad=False, create_graph=False):
         if self.grad is None:
-            self.grad = np.ones_like(self.data)
+            self.grad = Variable(np.ones_like(self.data))
         seen_set = set()
         funcs = []
 
@@ -88,15 +88,16 @@ class Variable:
         while funcs:
             f = hq.heappop(funcs)
             gys = [output().grad for output in f.outputs]
-            gxs = f.backward(*gys)
-            if not isinstance(gxs, tuple):
-                gxs = (gxs, )
-            for x, gx in zip(f.inputs, gxs):
-                x.grad = gx if x.grad is None else gx + x.grad
-                if x.creator is not None:
-                    add_func(x.creator)
+            with using_config('enable_backprop', create_graph):
+                gxs = f.backward(*gys)
+                if not isinstance(gxs, tuple):
+                    gxs = (gxs, )
+                for x, gx in zip(f.inputs, gxs):
+                    x.grad = gx if x.grad is None else gx + x.grad
+                    if x.creator is not None:
+                        add_func(x.creator)
             if not retain_grad:
-                for y in f.outputs:
+                for y in f.outputs: 
                     y().grad = None
 
 class Function:
@@ -143,7 +144,7 @@ class Pow(Function):
     def forward(self, x):
         return x**self.c
     def backward(self, gy):
-        x = self.inputs[0].data
+        x = self.inputs[0]
         c = self.c
         return gy*c*x**(c-1)
 
@@ -151,14 +152,14 @@ class Square(Function):
     def forward(self, x):
         return x**2
     def backward(self, gy):
-        x = self.inputs[0].data
+        x = self.inputs[0]
         return 2 * x * gy
 
-class Exp(Function):
+class Exp(Function): # 이거 문제있는거 아님?
     def forward(self, x):
         return np.exp(x)
     def backward(self, gy):
-        return np.exp(self.inputs.data) * gy
+        return np.exp(self.inputs[0]) * gy
 
 class Add(Function):
     def forward(self, x0, x1):
@@ -170,7 +171,7 @@ class Mul(Function):
     def forward(self, x0, x1):
         return x0 * x1
     def backward(self, gy):
-        x0, x1 = self.inputs[0].data, self.inputs[1].data
+        x0, x1 = self.inputs
         return x1*gy, x0*gy
 
 class Sub(Function):
@@ -183,7 +184,7 @@ class Div(Function):
     def forward(self, x0, x1):
         return x0 / x1
     def backward(self, gy):
-        x0, x1 = self.inputs[0].data, self.inputs[1].data
+        x0, x1 = self.inputs
         return gy/x1, (-x0/x1**2)*gy
 
 def neg(x):
